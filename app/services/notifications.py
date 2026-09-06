@@ -91,6 +91,8 @@ def relancer_pending(db: Session, max_tentatives: int = MAX_TENTATIVES) -> int:
 
 def recap_fin_journee(db: Session, jour=None) -> int:
     """Récap de fin de journée pour chaque compte opt-in avec activité (REQ-F-NOT-002)."""
+    from sqlalchemy import func
+
     start, end = day_range(jour)
     comptes = list(db.execute(select(Compte)).scalars())
     envoyes = 0
@@ -98,20 +100,18 @@ def recap_fin_journee(db: Session, jour=None) -> int:
         if not _opt_in(db, compte.id, "notifications"):
             continue
         nb = db.execute(
-            select(Ecriture).where(
+            select(func.count(Ecriture.id)).where(
                 Ecriture.compte_id == compte.id,
                 Ecriture.statut == EcritureStatut.CONFIRMEE,
                 Ecriture.date >= start,
                 Ecriture.date < end,
             )
-        ).scalar_one_or_none()
-        if nb is None:
+        ).scalar_one()
+        if nb == 0:
             continue
         from .bilans import bilan_du_jour
 
         bilan = bilan_du_jour(db, compte.id)
-        if bilan["nb_ecritures"] == 0:
-            continue
         texte = f"Sika — {format_bilan(bilan, compte.langue)}"
         envoyer(db, compte_id=compte.id, destinataire=compte.telephone, canal="WHATSAPP", contenu=texte)
         envoyes += 1

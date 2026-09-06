@@ -1,27 +1,32 @@
 """Worker planifié (processus séparé sur Render) — REQ-F-BIL-003, REQ-F-NOT-002/005.
 
 Tâches :
-1. Relance des notifications PENDING (politique 3 tentatives — REQ-F-NOT-005) ;
+1. Relance des notifications PENDING/FAILED (politique 3 tentatives — REQ-F-NOT-005) ;
 2. Récapitulatif de fin de journée (opt-in + activité) — une fois par jour ;
 3. Recensement (log uniquement, aucun envoi auto) des dettes éligibles à relance —
-   l'envoi exige la validation de l'utilisatrice (REQ-AI-006).
+   l'envoi exige la validation de l'utilisatrice (REQ-AI-006) ;
+4. Purge des écritures PROVISOIRE jamais confirmées depuis plus de 2 h
+   (C-CON-004 : sans confirmation, elles ne doivent pas s'accumuler).
 """
 import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import timedelta
+
+from sqlalchemy import delete, select
 
 from app.core.db import SessionLocal, utcnow
+from app.models import Compte, Ecriture, EcritureStatut
 from app.services import notifications as notif_svc
 from app.services.dettes import dettes_echues_relançables
-from app.models import Compte
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("sika.worker")
 
 ETAT_FICHIER = os.environ.get("SIKA_WORKER_STATE", ".worker_state.json")
 HEURE_RECAP = int(os.environ.get("SIKA_RECAP_HOUR", "17"))  # UTC
+AGE_MAX_PROVISOIRE_HEURES = 2
 
 
 def _lire_etat() -> dict:
@@ -37,10 +42,25 @@ def _ecrire_etat(etat: dict) -> None:
         json.dump(etat, f)
 
 
+def purger_provisoires_perimees(db) -> int:
+    """Supprime les PROVISOIRE de plus de 2 h (jamais confirmées, donc sans effet)."""
+    limite = utcnow() - timedelta(hours=AGE_MAX_PROVISOIRE_HEURES)
+    result = db.execute(
+        delete(Ecriture).where(
+            Ecriture.statut == EcritureStatut.PROVISOIRE,
+            Ecriture.date < limite,
+        )
+    )
+    return result.rowcount or 0
+
+
 def tour(etat: dict) -> dict:
     db = SessionLocal()
     try:
         notif_svc.relancer_pending(db)
+        purges = purger_provisoires_perimees(db)
+        if purges:
+            logger.info("provisoires périmées purgées : %s", purges)
         db.commit()
 
         maintenant = utcnow()
@@ -51,11 +71,12 @@ def tour(etat: dict) -> dict:
             etat["dernier_recap"] = jour
             logger.info("recap fin de journée : %s envoi(s)", envoyes)
 
-        for compte in db.execute(db.query(Compte).statement).scalars():
+        for compte in db.execute(select(Compte)).scalars():
             candidates = dettes_echues_relançables(db, compte.id)
             if candidates:
                 logger.info(
-                    "compte %s : %s dette(s) client éligible(s) à relance (validation utilisatrice requise)",
+                    "compte %s : %s dette(s) client éligible(s) à relance "
+                    "(validation utilisatrice requise)",
                     compte.id, len(candidates),
                 )
         db.commit()

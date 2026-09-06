@@ -128,9 +128,15 @@ def lister_dettes(
     if statut:
         q = q.where(Dette.statut == statut.upper())
     dettes = db.execute(q.order_by(Dette.cree_le.desc())).scalars().all()
+    from ..models import Tiers
+
+    noms = {t.id: t.nom for t in db.execute(select(Tiers).where(Tiers.compte_id == compte.id)).scalars()}
+    relançables = {d.id for d in dettes_svc.dettes_echues_relançables(db, compte.id)}
     return {"items": [{"id": d.id, "sens": d.sens, "tiers_id": d.tiers_id,
+                       "tiers_nom": noms.get(d.tiers_id, "?"),
                        "montant_initial_cents": d.montant_initial_cents,
                        "reste_du_cents": d.reste_du_cents, "statut": d.statut,
+                       "relançable": d.id in relançables,
                        "echeance": d.echeance.isoformat() if d.echeance else None}
                       for d in dettes]}
 
@@ -163,6 +169,20 @@ def regler(dette_id: str, body: EncaisserIn, compte: Compte = Depends(current_co
 def annuler_dette(dette_id: str, compte: Compte = Depends(current_compte), db: Session = Depends(get_db)):
     try:
         dettes_svc.annuler_dette(db, compte_id=compte.id, dette_id=dette_id)
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@router.post("/dettes/{dette_id}/relancer")
+def relancer_dette(dette_id: str, body: dict | None = None,
+                   compte: Compte = Depends(current_compte), db: Session = Depends(get_db)):
+    """Relance validée par l'utilisatrice (REQ-F-DET-006/007, REQ-AI-006)."""
+    try:
+        message = (body or {}).get("message") or "Bonjour, rappel amical de votre dette. Merci de régulariser."
+        dettes_svc.envoyer_relance(db, compte_id=compte.id, dette_id=dette_id, message=message)
         db.commit()
     except ValueError as e:
         db.rollback()

@@ -11,8 +11,7 @@ from ..core.audit import log
 from ..models import Ecriture, EcritureStatut, EcritureType, Tiers
 from ._util import dumps_json, flux_cents
 
-MAX_MONTANT_CENTS = 100_000_000 * 100  # REQ-F-ACH-006 : borne de plausibilité
-PLAUSIBILITE = 100_000_000  # en FCFA
+PLAUSIBILITE = 100_000_000  # en FCFA (REQ-F-ACH-006)
 
 
 def _validate_montant(type_: str, montant_cents: int) -> None:

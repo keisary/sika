@@ -116,6 +116,29 @@ function Dashboard({ compte, onLogout }) {
     setDossierMd(data.markdown || JSON.stringify(data));
   };
 
+  const encaisserRegler = async (d) => {
+    const f = window.prompt(
+      `${d.sens === 'CLIENT' ? 'Encaisser' : 'Régler'} sur ${d.tiers_nom} — reste dû : ${fmtFcfa(d.reste_du_cents)}\nMontant en FCFA :`
+    );
+    if (!f) return;
+    const cents = Math.round(Number(f.replace(/\s/g, '')) * 100);
+    if (!cents || cents <= 0) return;
+    const route = d.sens === 'CLIENT' ? 'encaisser' : 'regler';
+    const r = await api(`/api/v1/dettes/${d.id}/${route}`, {
+      method: 'POST',
+      body: JSON.stringify({ montant_cents: cents }),
+    });
+    setNote(r.ok ? 'Paiement enregistré.' : (await r.json()).detail || 'Échec.');
+    charger();
+  };
+
+  const relancer = async (d) => {
+    if (!window.confirm(`Envoyer une relance à ${d.tiers_nom} (${fmtFcfa(d.reste_du_cents)}) ?`)) return;
+    const r = await api(`/api/v1/dettes/${d.id}/relancer`, { method: 'POST', body: '{}' });
+    setNote(r.ok ? 'Relance envoyée.' : (await r.json()).detail || 'Échec.');
+    charger();
+  };
+
   const telechargerCsv = async () => {
     const r = await api('/api/v1/ecritures/export.csv');
     const blob = await r.blob();
@@ -179,8 +202,16 @@ function Dashboard({ compte, onLogout }) {
                   {fmtFcfa(d.reste_du_cents)}
                 </span>
                 <span className="libelle">
-                  {d.sens === 'CLIENT' ? '👤 on me doit' : '🏪 je dois'} · {d.statut}
+                  {d.sens === 'CLIENT' ? '👤 ' : '🏪 '}
+                  {d.tiers_nom}
+                  {d.relançable ? ' · 🔔 relançable' : ''} <small>({d.statut})</small>
                 </span>
+                <button className="ghost petit" onClick={() => encaisserRegler(d)}>
+                  {d.sens === 'CLIENT' ? 'Encaisser' : 'Régler'}
+                </button>
+                {d.relançable && (
+                  <button className="ghost petit" onClick={() => relancer(d)}>Relancer</button>
+                )}
               </li>
             ))}
           </ul>

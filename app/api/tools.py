@@ -210,18 +210,24 @@ def derniere_ecriture(compte: Compte = Depends(current_compte), db: Session = De
 @router.get("/tools/dettes/lister")
 def lister_dettes(sens: str | None = None, compte: Compte = Depends(current_compte),
                   db: Session = Depends(get_db)):
+    from sqlalchemy import select as sa_select
+
+    from ..models import Tiers
+
     dettes = dettes_svc.dettes_actives(db, compte.id, sens=sens)
     relançables = {d.id for d in dettes_svc.dettes_echues_relançables(db, compte.id)}
+    noms = {t.id: t.nom for t in db.execute(sa_select(Tiers).where(Tiers.compte_id == compte.id)).scalars()}
     items = [
-        {"id": d.id, "sens": d.sens, "reste_du_cents": d.reste_du_cents,
-         "statut": d.statut, "echeance": d.echeance.isoformat() if d.echeance else None,
+        {"id": d.id, "sens": d.sens, "tiers_nom": noms.get(d.tiers_id, "?"),
+         "reste_du_cents": d.reste_du_cents, "statut": d.statut,
+         "echeance": d.echeance.isoformat() if d.echeance else None,
          "relançable": d.id in relançables}
         for d in dettes
     ]
     if not items:
         return _ok("Aucune dette en cours.", {"items": []})
     texte = "Dettes en cours : " + ", ".join(
-        f"{d['sens'].lower()} {fmt_fcfa(d['reste_du_cents'])}"
+        f"{d['sens'].lower()} {d['tiers_nom']} — {fmt_fcfa(d['reste_du_cents'])}"
         + (" (relançable)" if d["relançable"] else "") for d in items)
     return _ok(texte, {"items": items})
 
