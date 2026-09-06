@@ -1,5 +1,9 @@
 """Point d'entrée FastAPI — Sika API."""
+import logging
 import os
+import threading
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -13,10 +17,37 @@ from .api import voix as voix_api
 from .core.config import settings
 from .core.ratelimit import RateLimitMiddleware
 
+logger = logging.getLogger("sika.main")
+
+
+def _scheduler_loop() -> None:
+    """Recaps fin de journée + relances PENDING + purge PROVISOIRE (si SIKA_RUN_SCHEDULER=1)."""
+    from worker.run import _ecrire_etat, _lire_etat, tour
+
+    logger.info("scheduler in-process démarré (tour toutes les 60 s)")
+    etat = _lire_etat()
+    while True:
+        try:
+            etat = tour(etat)
+            _ecrire_etat(etat)
+        except Exception:  # noqa: BLE001
+            logger.exception("erreur scheduler")
+        time.sleep(60)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if settings.sika_run_scheduler:
+        thread = threading.Thread(target=_scheduler_loop, daemon=True)
+        thread.start()
+    yield
+
+
 app = FastAPI(
     title="Sika API",
     version="0.2.0",
     description="Sika — le livre de caisse qui parle. API REST (dashboard) + outils HTTP (agent vocal AssemblyAI).",
+    lifespan=lifespan,
 )
 
 _origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]

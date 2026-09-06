@@ -41,3 +41,11 @@ Deux services + une base PostgreSQL gratuits (render.yaml fourni).
 - Fournisseur WhatsApp/SMS en mode `console` (aucun SMS réel) tant qu'un agrégateur n'est pas configuré ;
 - Agent vocal mono-compte démo (jeton d'outil lié au compte Aïcha) — multi-utilisateurs : V2 (jeton par session) ;
 - L'arabe est reconnu en entrée mais pas encore en sortie vocale (choix V1 : FR/EN/PT/ES).
+
+## Ajustements du déploiement (sept. 2026)
+
+- **Déployé via l'API Render** (compte unique) : web service `sika` → `https://sika-pcdy.onrender.com` ;
+- **PostgreSQL gratuit indisponible** : le slot free est déjà pris par ImpayAI (prod) → V1 tourne sur **SQLite** (fichier éphemère : re-seedé à chaque déploiement — acceptable pour la démo ; les écritures restent en vie entre deux déploiements tant que l'instance ne redémarre pas) ;
+- **Bascule PostgreSQL** : dès qu'un slot free se libère ou sur Neon/plan payant → changer `DATABASE_URL` puis `alembic upgrade head` (schéma identique, aucune migration à adapter) ;
+- **Worker** : le MCP Render ne crée pas de service worker → activer le **scheduler in-process** avec `SIKA_RUN_SCHEDULER=true` (recaps fin de journée, relances PENDING, purge PROVISOIRE périmées toutes les 60 s). Pour un vrai worker séparé : utiliser le Blueprint `render.yaml` (Docker) ;
+- **Agent vocal AAI** : publié (id dans `SIKA_AGENT_ID`), 14 outils HTTP pointant vers l'URL publique, voix `estelle`, jeton d'outil lié au compte démo.
