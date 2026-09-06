@@ -24,7 +24,7 @@ htmlcov/
 
 # Node / frontend
 node_modules/
-frontend/dist/
+# NB : frontend/dist est COMMITTÉ (déploiement Render natif Python sans étape Node)
 
 # OS / IDE
 .DS_Store
