@@ -1,0 +1,1 @@
+"""Sika — services métier."""

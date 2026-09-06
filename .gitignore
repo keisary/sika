@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environnement
+.env
+.env.local
+
+# Base de données locale
+*.db
+*.sqlite3
+
+# Secrets / état générés localement (jamais commités)
+.agent_id
+.agent_tool_token
+.worker_state.json
+
+# Node / frontend
+node_modules/
+frontend/dist/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

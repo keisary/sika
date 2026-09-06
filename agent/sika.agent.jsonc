@@ -1,0 +1,192 @@
+// Sika — configuration de l'agent vocal AssemblyAI (Voice Agent API).
+// Champs validés sur docs AAI (create-agent, voices, tools/http-tools).
+// ${SIKA_TOOLS_URL} et ${SIKA_TOOL_TOKEN} sont substitués à la publication
+// (python -m app.agent_publish --url <BASE_URL>).
+{
+  "name": "Sika - livre de caisse vocal",
+  "system_prompt": "Tu es Sika, l'assistante vocale de tenue de caisse d'une micro-entrepreneuse (ventes, dépenses, dettes, épargne, bilans). Règles strictes :\n1. Parle dans la langue de l'utilisatrice (français, anglais, portugais ou espagnol). Si elle change de langue en cours d'appel (« speak English »), suis-la immédiatement. Garde des réponses courtes (deux phrases max hors bilan et confirmation).\n2. Tu n'es PAS un conseiller financier, fiscal ou juridique : ne donne jamais de conseil d'investissement, d'endettement ou d'octroi de crédit. Oriente vers une institution.\n3. Ne calcule JAMAIS de total toi-même : appelle toujours un outil ; les totaux viennent du système. Ne répète jamais un chiffre que tu n'as pas reçu d'un outil.\n4. Avant toute écriture (vente, dépense, dette, épargne, relance, annulation), RELIS l'opération et demande confirmation explicite ; n'appelle l'outil d'écriture qu'après un « oui » clair. Ne confonds pas une question et une confirmation.\n5. Pour toute demande chiffrée (« bilan », « combien j'ai »), appelle l'outil concerné ; ne réponds jamais de mémoire.\n6. Annulation : si l'utilisatrice dit « annule la dernière », appelle ecriture_derniere puis ecriture_annuler après confirmation.\n7. Refus polis : demande hors périmètre (conseil financier, usurpation, promesse de crédit) -> refuse et reformule ce que tu sais faire.\n8. En cas d'échec d'un outil (message ok:false), répète l'explication simple et propose une alternative.\nExemple de vente : Utilisatrice : « j'ai vendu 20 sachets à 50 F » -> tu appelles ventes_proposer {quantite:20, prix_unitaire_cents:5000} puis tu lis : « Vente de 20 sachets à 50 F, soit 1 000 F. Je confirme ? » et après confirmation tu appelles ecriture_confirmer.",
+  "greeting": "Bonjour, je suis Sika, ta caisse qui parle. Dis-moi ce que tu as vendu, acheté, ou demande ton bilan du jour.",
+  "voice": { "voice_id": "estelle" },
+  "tools": [
+    {
+      "name": "accueil",
+      "description": "Appelle-le au début de chaque appel pour saluer l'utilisatrice par son prénom et connaître le solde du jour, le nombre de créances en cours et de relances candidates.",
+      "parameters": { "type": "object", "properties": {}, "required": [] },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/accueil", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "ventes_proposer",
+      "description": "Appelle-le quand l'utilisatrice annonce une vente. Retourne un total calculé par le système et une proposition à confirmer. Anti-déclencheur : ne pas appeler pour une simple conversation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "quantite": { "type": "integer", "description": "Quantité vendue (par défaut 1).", "examples": [2, 20] },
+          "prix_unitaire_cents": { "type": "integer", "description": "Prix unitaire en centimes de franc CFA. 50 FCFA = 5000 centimes. 1000 FCFA = 100000 centimes.", "examples": [5000, 50000] },
+          "a_credit": { "type": "boolean", "description": "Vrai si la vente est à crédit (payée plus tard)." },
+          "tiers_nom": { "type": "string", "description": "Nom du client si vente à crédit." },
+          "echeance": { "type": "string", "format": "date", "description": "Échéance du paiement si précisée, format AAAA-MM-JJ.", "examples": ["2026-09-12"] }
+        },
+        "required": ["prix_unitaire_cents"]
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/ventes/proposer", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "depenses_proposer",
+      "description": "Appelle-le quand l'utilisatrice annonce une dépense ou un achat (réassort, transport...). Retourne une proposition à confirmer.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "montant_cents": { "type": "integer", "description": "Montant en centimes de franc CFA.", "examples": [1200000] },
+          "libelle": { "type": "string", "description": "Description courte de la dépense." },
+          "a_credit": { "type": "boolean", "description": "Vrai si achat à crédit (payé plus tard, dette fournisseur)." },
+          "tiers_nom": { "type": "string", "description": "Nom du fournisseur si achat à crédit." },
+          "echeance": { "type": "string", "format": "date", "description": "Échéance si précisée, AAAA-MM-JJ." }
+        },
+        "required": ["montant_cents"]
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/depenses/proposer", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "ecriture_confirmer",
+      "description": "Appelle-le uniquement APRÈS que l'utilisatrice a explicitement confirmé une proposition (vente ou dépense). Ne jamais appeler sans confirmation.",
+      "parameters": {
+        "type": "object",
+        "properties": { "ecriture_id": { "type": "string", "description": "Identifiant de l'écriture proposée." } },
+        "required": ["ecriture_id"]
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/ecritures/confirmer", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "ecriture_annuler",
+      "description": "Appelle-le après confirmation pour annuler une opération (crée une écriture d'ajustement tracée).",
+      "parameters": {
+        "type": "object",
+        "properties": { "ecriture_id": { "type": "string", "description": "Identifiant de l'écriture à annuler." } },
+        "required": ["ecriture_id"]
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/ecritures/annuler", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "ecriture_derniere",
+      "description": "Appelle-le quand l'utilisatrice dit « annule la dernière » pour retrouver la dernière opération confirmée.",
+      "parameters": { "type": "object", "properties": {}, "required": [] },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/ecritures/derniere", "http_method": "GET", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "dettes_lister",
+      "description": "Appelle-le pour « qui me doit ? », « à qui je dois ? » ou l'état des dettes. Marque les créances relançables (échues depuis plus de 3 jours).",
+      "parameters": {
+        "type": "object",
+        "properties": { "sens": { "type": "string", "enum": ["CLIENT", "FOURNISSEUR"], "description": "CLIENT = on me doit ; FOURNISSEUR = je dois." } },
+        "required": []
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/dettes/lister", "http_method": "GET", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "dettes_creer",
+      "description": "Appelle-le pour déclarer une dette existante (client ou fournisseur) avec son montant et son échéance, après confirmation orale.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sens": { "type": "string", "enum": ["CLIENT", "FOURNISSEUR"], "description": "CLIENT = le tiers me doit ; FOURNISSEUR = je dois au tiers." },
+          "tiers_nom": { "type": "string", "description": "Nom du tiers.", "examples": ["Koffi", "Awa"] },
+          "montant_cents": { "type": "integer", "description": "Montant en centimes." },
+          "echeance": { "type": "string", "format": "date", "description": "Échéance AAAA-MM-JJ." }
+        },
+        "required": ["sens", "tiers_nom", "montant_cents"]
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/dettes/creer", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "dettes_encaisser",
+      "description": "Appelle-le quand un client paie une partie ou la totalité de sa dette (après confirmation).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dette_id": { "type": "string", "description": "Identifiant de la dette (fourni par dettes_lister)." },
+          "montant_cents": { "type": "integer", "description": "Montant encaissé en centimes." }
+        },
+        "required": ["dette_id", "montant_cents"]
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/dettes/encaisser", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "dettes_regler",
+      "description": "Appelle-le quand l'utilisatrice règle une partie ou la totalité d'une dette fournisseur (après confirmation).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dette_id": { "type": "string", "description": "Identifiant de la dette fournisseur." },
+          "montant_cents": { "type": "integer", "description": "Montant réglé en centimes." }
+        },
+        "required": ["dette_id", "montant_cents"]
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/dettes/regler", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "dettes_relancer",
+      "description": "Appelle-le APRÈS validation explicite de l'utilisatrice pour envoyer une relance courtoise à un client débiteur (dette marquée relançable).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dette_id": { "type": "string", "description": "Identifiant de la dette." },
+          "message": { "type": "string", "description": "Message de relance courtois, sans menace." }
+        },
+        "required": ["dette_id"]
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/dettes/relancer", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "epargne_deposer",
+      "description": "Appelle-le quand l'utilisatrice accepte de mettre de l'argent de côté (après confirmation orale).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objectif_id": { "type": "string", "description": "Identifiant de l'objectif d'épargne." },
+          "montant_cents": { "type": "integer", "description": "Montant épargné en centimes." }
+        },
+        "required": ["objectif_id", "montant_cents"]
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/epargne/deposer", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "bilan",
+      "description": "Appelle-le pour tout bilan : « bilan du jour », « bilan de la semaine » (periode=dates avec debut/fin ISO), ou les totaux de la journée. Ne réponds jamais aux chiffres sans cet outil.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "periode": { "type": "string", "enum": ["jour", "dates"], "description": "jour = aujourd'hui ; dates = période personnalisée." },
+          "debut": { "type": "string", "format": "date-time", "description": "Début ISO si periode=dates." },
+          "fin": { "type": "string", "format": "date-time", "description": "Fin ISO si periode=dates." }
+        },
+        "required": []
+      },
+      "execution_mode": "interactive",
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/bilan", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    },
+    {
+      "name": "dossier_generer",
+      "description": "Appelle-le quand l'utilisatrice demande son dossier de crédit ou son « historique bancable » (3 ou 6 mois), après confirmation.",
+      "parameters": {
+        "type": "object",
+        "properties": { "mois": { "type": "integer", "enum": [3, 6], "description": "Période glissante en mois." } },
+        "required": []
+      },
+      "execution_mode": "interactive",
+      "timeout_seconds": 30,
+      "http": { "url": "${SIKA_TOOLS_URL}/tools/dossier/generer", "http_method": "POST", "headers": [ { "name": "Authorization", "value": "Bearer ${SIKA_TOOL_TOKEN}" } ] }
+    }
+  ]
+}
