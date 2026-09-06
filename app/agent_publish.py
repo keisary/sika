@@ -61,10 +61,16 @@ def main() -> None:
 
     jeton = _jeton_outil()
     template = _charger_template()
+    # jsonc → json : retire les commentaires de pleine ligne
+    lignes = [
+        l for l in template.splitlines()
+        if not l.lstrip().startswith("//")
+    ]
+    template = "\n".join(lignes)
     body = template.replace("${SIKA_TOOLS_URL}", base).replace("${SIKA_TOOL_TOKEN}", jeton)
     import json as _json
 
-    payload = _json.loads(body)  # jsonc sans commentaires restants -> JSON strict
+    payload = _json.loads(body)
 
     headers = {"Authorization": settings.assemblyai_api_key, "Content-Type": "application/json"}
     agent_id = None
